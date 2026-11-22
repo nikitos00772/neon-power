@@ -1,0 +1,9 @@
+{
+  "name": "neon-power",
+  "version": "0.2.0",
+  "title": "Neon Power",
+  "author": "nikitos00772",
+  "factorio_version": "2.1",
+  "dependencies": ["base >= 2.0.0"],
+  "description": "Bring Christmas to your base(and neon). Neon versions of every power pole, connected by glowing neon cables that hang like vanilla wires. Cables light up only while powered and draw a little electricity; their colour can be set per network with circuit signals, like a lamp."
+}

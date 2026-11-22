@@ -1,0 +1,15 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.2.0
+Date: 2026-11-22
+  Features:
+    - Neon versions of the small, medium and big electric pole and the substation, all unlocked by the Neon power technology.
+    - Vanilla poles upgrade to their neon version with the upgrade planner.
+    - Cable colour from circuit signals (signal-red/green/blue, 0-255, like a lamp in RGB mode).
+  Changes:
+    - Cables (try to) follow the vanilla wire shape.
+    - Each lit cable draws a fixed 1 kW.
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 2026-11-22
+  Features:
+    - Initial version: neon power pole with glowing script-drawn cables, lit only while powered.
