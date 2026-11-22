@@ -1,0 +1,4 @@
+# left out of the mod zip built with `git archive`
+.gitignore export-ignore
+.gitattributes export-ignore
+README.md export-ignore

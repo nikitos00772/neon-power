@@ -1,7 +1,7 @@
-local NEON = "neon-power-pole"
 local POWER = "neon-power-interface"
 local CABLE_KW = 1
-local VANILLA_WIRE = require("config").vanilla_wire
+local CONFIG = require("config")
+local VANILLA_WIRE = CONFIG.vanilla_wire
 
 local NEON_SET = prototypes.mod_data["neon-power-poles"].data
 local NEON_LIST = {}
@@ -518,11 +518,6 @@ script.on_event(defines.events.on_surface_deleted, rebuild_all)
 -- No event exists for manual rewiring, so poles are rescanned round-robin.
 script.on_nth_tick(STEP_TICKS, function()
   if storage.draw_sig ~= DRAW_SIG then rebuild_all() end
-  local ref = storage.ref_surface
-  if ref and game.tick > ref.tick then
-    if game.surfaces[ref.name] then game.delete_surface(ref.name) end
-    storage.ref_surface = nil
-  end
   local c = cfg()
   local neon = storage.neon
   local k = storage.cursor
@@ -558,53 +553,3 @@ end)
 commands.add_command("neon-power-rebuild", "Rebuild all neon cables.", function()
   rebuild_all()
 end)
-
-local REF_PAIRS = {
-  { 0, 0, 2, 0 }, { 0, 4, 4, 4 }, { 0, 8, 6, 8 }, { 0, 12, 9, 12 },
-  { 12, 0, 12, 4 }, { 12, 7, 12, 15 },
-  { 15, 0, 21, 6 }, { 15, 9, 23, 13 }, { 16, 16, 22, 13 },
-  { 0, 16, 1, 16 }, { 3, 16, 6, 16 }, { 8, 15, 10, 16 }, { 23, 0, 24, 1 }, { 23, 4, 24, 7 },
-}
-local REF_BLOCK = 30
-
-commands.add_command("neon-power-wire-reference",
-  "Build vanilla + neon reference wires on a new surface and screenshot them to script-output/neon-power/.",
-  function(cmd)
-    local s = game.create_surface("neon-wire-reference-" .. game.tick)
-    s.generate_with_lab_tiles = true
-    s.always_day = true
-    s.request_to_generate_chunks({ REF_BLOCK, 8 }, 3)
-    s.force_generate_chunk_requests()
-    local c = cfg()
-    for block, name in pairs({ "medium-electric-pole", NEON }) do
-      local bx = (block - 1) * REF_BLOCK
-      local made = {}
-      local function pole(x, y)
-        local key = x .. "," .. y
-        if not made[key] then
-          made[key] = s.create_entity{ name = name, position = { bx + x + 0.5, y + 0.5 }, force = "player" }
-        end
-        return made[key]
-      end
-      for _, p in pairs(REF_PAIRS) do pole(p[1], p[2]); pole(p[3], p[4]) end
-      for _, e in pairs(made) do
-        e.get_wire_connector(defines.wire_connector_id.pole_copper, true).disconnect_all()
-      end
-      for _, p in pairs(REF_PAIRS) do
-        pole(p[1], p[2]).get_wire_connector(defines.wire_connector_id.pole_copper, true)
-          .connect_to(pole(p[3], p[4]).get_wire_connector(defines.wire_connector_id.pole_copper, true), false)
-      end
-      if name == NEON then
-        for _, e in pairs(made) do add_neon(e) end
-        for _, e in pairs(made) do refresh_neon(e.unit_number, c) end
-      end
-      game.take_screenshot{
-        surface = s, position = { bx + 12.5, 7.5 }, resolution = { 1664, 1536 }, zoom = 2,
-        path = "neon-power/" .. (block == 1 and "vanilla" or "neon") .. ".png",
-        show_entity_info = false, show_gui = false, daytime = 0, anti_alias = false, force_render = true,
-      }
-    end
-    local player = cmd.player_index and game.get_player(cmd.player_index)
-    storage.ref_surface = { name = s.name, tick = game.tick }
-    if player then player.print("Neon Power: reference screenshots saved to script-output/neon-power/") end
-  end)
