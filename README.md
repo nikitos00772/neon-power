@@ -2,6 +2,8 @@
 
 Neon versions of every power pole, connected by glowing neon cables.
 
+Best used without night vision
+
 ## Features
 
 - **Neon small, medium and big electric poles and neon substation**, with the same stats as their vanilla versions. All four are unlocked by the **Neon power** technology (after Electric energy distribution 2 and Advanced circuits).

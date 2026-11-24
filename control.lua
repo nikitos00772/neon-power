@@ -1,7 +1,5 @@
 local POWER = "neon-power-interface"
 local CABLE_KW = 1
-local CONFIG = require("config")
-local VANILLA_WIRE = CONFIG.vanilla_wire
 
 local NEON_SET = prototypes.mod_data["neon-power-poles"].data
 local NEON_LIST = {}
@@ -19,28 +17,22 @@ local STRIP_PX = 128
 local POLE_LIGHT_SCALE = 0.8
 local DEFAULT_ANCHOR = { x = 0, y = -2.5 }
 
-local WIRE_SPRITE = "neon-power-wire"
-local SHADOW_SPRITE = "neon-power-wire-shadow"
-local COPPER_SPRITE = "neon-power-copper-wire"
-local STRIP_TILES = 0.25
 local WIRE_DEPTH = 46.9 / 64 -- depth of the arc in the png
 local END_OFF = 2.33 / 64    -- arc ends above the png's vertical centre
 local SPRITE_H = 46          -- png height, px at 32 px per tile
 local HALF_H = SPRITE_H / 64 -- half of it, in tiles
 local SHORT_LEN = 3
-local VANILLA_WIRE_W = 1.5   -- vanilla wire stroke (3 hr px), px at 32 px per tile
+local UNLIT_W = 1          -- unlit cable thickness, px at 32 px per tile (lit: core width setting)
 local PROFILE = {
   0.0, 0.1569, 0.2944, 0.4136, 0.517, 0.6082, 0.6859, 0.7545, 0.8121, 0.8624,
   0.9031, 0.936, 0.9617, 0.9805, 0.9948, 1.0, 1.0, 1.0, 0.9948, 0.9805, 0.9617,
   0.936, 0.9031, 0.8624, 0.8121, 0.7545, 0.6859, 0.6082, 0.517, 0.4136, 0.2944,
   0.1569, 0.0,
 }
-local SHADE = { x = 0.5, y = 1 }
-
 -- Saved cables are redrawn when this changes; bump DRAW_REV for drawing changes.
-local DRAW_REV = 9
-local DRAW_SIG = table.concat({ DRAW_REV, tostring(VANILLA_WIRE), VANILLA_WIRE_W, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
-  LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE, STRIP_TILES, SHADE.x, SHADE.y }, "|")
+local DRAW_REV = 13
+local DRAW_SIG = table.concat({ DRAW_REV, UNLIT_W, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
+  LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE }, "|")
 
 local anchors
 
@@ -48,9 +40,7 @@ local function cfg()
   local g = settings.global
   return {
     color   = g["neon-power-color"].value,
-    -- the vanilla wire underneath would peek out beside a thinner core
-    core_w  = VANILLA_WIRE and math.max(VANILLA_WIRE_W, g["neon-power-core-width"].value)
-              or g["neon-power-core-width"].value,
+    core_w  = g["neon-power-core-width"].value,
     glow_w  = g["neon-power-glow-width"].value,
     glow_a  = g["neon-power-glow-strength"].value,
     light   = g["neon-power-light-strength"].value,
@@ -125,19 +115,13 @@ local function profile(t)
 end
 
 -- h: wire height above the shadow, px at 32 px per tile.
-local function arc(pa, pb, shadow, h)
+local function arc(pa, pb, h)
   local dx, dy = pb.x - pa.x, pb.y - pa.y
   local len = math.sqrt(dx * dx + dy * dy)
   if len < 1e-6 then len = 1e-6 end
   local nx, ny = -dy / len, dx / len
-  local k
-  if shadow then
-    if nx > 0 then nx, ny = -nx, -ny end
-    k = math.abs(dy) / len
-  else
-    if ny < 0 then nx, ny = -nx, -ny end
-    k = math.abs(dx) / len
-  end
+  if ny < 0 then nx, ny = -nx, -ny end
+  local k = math.abs(dx) / len
   local s = k * math.min(SPRITE_H * math.min(1, len / SHORT_LEN), 2 * h)
   local q = math.max(1, s) / SPRITE_H -- cropped fraction of the png height
   return {
@@ -160,21 +144,6 @@ local function arc_points(a, n)
   return pts
 end
 
-local function draw_strip(pts, surface, sprite, visible, list)
-  for k = 1, #pts - 1 do
-    local f, t = pts[k], pts[k + 1]
-    local sx, sy = t.x - f.x, t.y - f.y
-    if -sy * SHADE.x + sx * SHADE.y < 0 then sx, sy = -sx, -sy end
-    list[#list + 1] = rendering.draw_sprite{
-      surface = surface, sprite = sprite, render_layer = "wires-above",
-      target = { x = (f.x + t.x) / 2, y = (f.y + t.y) / 2 },
-      orientation = (math.atan2(sy, sx) / (2 * math.pi)) % 1,
-      x_scale = math.sqrt(sx * sx + sy * sy) / STRIP_TILES * 1.1, y_scale = 1,
-      visible = visible,
-    }
-  end
-end
-
 local function wire_key(a, b)
   if a < b then return a .. ":" .. b end
   return b .. ":" .. a
@@ -184,13 +153,13 @@ local function core_color(k)
   return { r = k.r + (1 - k.r) * 0.55, g = k.g + (1 - k.g) * 0.55, b = k.b + (1 - k.b) * 0.55, a = 1 }
 end
 
-local function unlit_color(k)
-  return { r = 0.12 + k.r * 0.3, g = 0.12 + k.g * 0.3, b = 0.12 + k.b * 0.3, a = 1 }
-end
+-- Unlit cables are grey whatever their colour, covering the copper wire.
+local UNLIT_GREY = { r = 0.67, g = 0.67, b = 0.67, a = 1 }
 
-local function core_look(k, lit)
-  if lit then return core_color(k), true end
-  return unlit_color(k), VANILLA_WIRE
+-- colour, visible, width of the core line
+local function core_look(k, lit, c)
+  if lit then return core_color(k), true, c.core_w end
+  return UNLIT_GREY, true, UNLIT_W
 end
 
 local function glow_color(c, k)
@@ -308,10 +277,10 @@ local function update_pole_light(un, c, redraw)
 end
 
 local function destroy_objects(w)
-  for _, list in pairs({ w.core, w.glow, w.lights, w.tex, w.shadow }) do
+  for _, list in pairs({ w.core, w.glow, w.lights }) do
     for _, o in pairs(list) do if o.valid then o.destroy() end end
   end
-  w.core, w.glow, w.lights, w.tex, w.shadow = {}, {}, {}, {}, {}
+  w.core, w.glow, w.lights = {}, {}, {}
 end
 
 local function draw_wire(w, c)
@@ -322,7 +291,7 @@ local function draw_wire(w, c)
   local pa, sa = anchor_of(w.ea, w.va)
   local pb, sb = anchor_of(w.eb, w.vb)
   local h = math.max(0, math.min(sa.y - pa.y, sb.y - pb.y)) * 32
-  local a = arc(pa, pb, false, h)
+  local a = arc(pa, pb, h)
   local len = a.len
   local function point(t) return arc_point(a, t) end
 
@@ -332,10 +301,6 @@ local function draw_wire(w, c)
   local n = math.max(MIN_SEGS, math.min(MAX_SEGS, math.ceil(len / SEG_LEN)))
   local pts = arc_points(a, n)
 
-  if not VANILLA_WIRE then
-    draw_strip(pts, surface, (w.na and w.nb) and WIRE_SPRITE or COPPER_SPRITE, not lit, w.tex)
-    draw_strip(arc_points(arc(sa, sb, true, h), n), surface, SHADOW_SPRITE, true, w.shadow)
-  end
   -- A neon-to-vanilla wire stays a plain copper wire.
   if not (w.na and w.nb) then return end
 
@@ -350,12 +315,12 @@ local function draw_wire(w, c)
       }
     end
   end
-  local cc, core_vis = core_look(col, lit)
+  local cc, core_vis, core_w = core_look(col, lit, c)
   for k = 1, n do
     local f, t = pts[k], pts[k + 1]
     w.core[k] = rendering.draw_line{
       surface = surface, from = f, to = t,
-      color = cc, width = c.core_w, visible = core_vis,
+      color = cc, width = core_w, visible = core_vis,
     }
   end
   if c.light > 0 then
@@ -383,7 +348,7 @@ local function recolor_wire(w, c, cache)
   local col = wire_color(w, c, cache)
   if same_color(w.col, col) then return end
   w.col = col
-  local cc, gc = core_look(col, w.lit), glow_color(c, col)
+  local cc, gc = core_look(col, w.lit, c), glow_color(c, col)
   for _, o in pairs(w.core) do if o.valid then o.color = cc end end
   for _, o in pairs(w.glow) do if o.valid then o.color = gc end end
   for _, o in pairs(w.lights) do if o.valid then o.color = col end end
@@ -391,11 +356,10 @@ end
 
 local function set_lit(w, c, lit)
   w.lit = lit
-  local cc, core_vis = core_look(w.col or c.color, lit)
+  local cc, core_vis, core_w = core_look(w.col or c.color, lit, c)
   for _, o in pairs(w.core) do
-    if o.valid then o.visible = core_vis; o.color = cc end
+    if o.valid then o.visible = core_vis; o.color = cc; o.width = core_w end
   end
-  for _, o in pairs(w.tex or {}) do if o.valid then o.visible = not lit end end
   for _, o in pairs(w.glow) do if o.valid then o.visible = lit end end
   for _, o in pairs(w.lights) do if o.valid then o.visible = lit end end
 end
@@ -460,7 +424,7 @@ local function refresh_neon(un, c)
       local w = {
         a = un, b = pun, ea = pole, eb = other,
         na = true, nb = is_neon(other.name),
-        core = {}, glow = {}, lights = {}, tex = {}, shadow = {},
+        core = {}, glow = {}, lights = {},
       }
       if w.nb then add_neon(other) end
       w.lit = wire_lit(w)

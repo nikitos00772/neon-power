@@ -1,4 +1,3 @@
-local CONFIG = require("config")
 local TINT = { 0.55, 0.85, 1.0, 1.0 }
 local ICON_TINT = { 0.45, 0.85, 1.0, 1.0 }
 
@@ -25,7 +24,6 @@ for _, def in pairs(POLES) do
     pole.minable = { mining_time = (base_pole.minable and base_pole.minable.mining_time) or 0.1, result = NAME }
     pole.next_upgrade = nil
     pole.fast_replaceable_group = base_pole.fast_replaceable_group
-    pole.draw_copper_wires = CONFIG.vanilla_wire
     pole.light = nil
     for k, v in pairs(def.extra or {}) do pole[k] = v end
 

@@ -19,7 +19,7 @@ data:extend({
     type = "double-setting",
     name = "neon-power-glow-width",
     setting_type = "runtime-global",
-    default_value = 4.0,
+    default_value = 5.0,
     minimum_value = 0.0,
     maximum_value = 30.0,
     order = "c"
@@ -28,7 +28,7 @@ data:extend({
     type = "double-setting",
     name = "neon-power-glow-strength",
     setting_type = "runtime-global",
-    default_value = 0.25,
+    default_value = 0.2,
     minimum_value = 0.0,
     maximum_value = 1.0,
     order = "d"
@@ -37,7 +37,7 @@ data:extend({
     type = "double-setting",
     name = "neon-power-light-strength",
     setting_type = "runtime-global",
-    default_value = 0.5,
+    default_value = 1.5,
     minimum_value = 0.0,
     maximum_value = 2.0,
     order = "e"
