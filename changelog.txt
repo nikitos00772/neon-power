@@ -1,4 +1,14 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.3.0
+Date: 2026-11-24
+  Features:
+    - Cables are a bright core inside a coloured tube, with a soft outer shine that fades out. Unlit cables are a grey tube.
+    - New map settings: cable tube width, outer shine smoothness, and a separate pole light at night.
+  Changes:
+    - Cables follow the vanilla wire curve exactly and are drawn over the vanilla copper wire, so wire previews show when building poles.
+    - Neon cables run only between two neon poles; a wire from a neon pole to a vanilla pole stays a plain copper wire and draws no power.
+    - The cable glow strength setting was removed and the light settings were renamed, so those settings are back to their (new) defaults.
+---------------------------------------------------------------------------------------------------
 Version: 0.2.0
 Date: 2026-11-22
   Features:
