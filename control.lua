@@ -22,7 +22,6 @@ local END_OFF = 2.33 / 64    -- arc ends above the png's vertical centre
 local SPRITE_H = 46          -- png height, px at 32 px per tile
 local HALF_H = SPRITE_H / 64 -- half of it, in tiles
 local SHORT_LEN = 3
-local UNLIT_W = 1          -- unlit cable thickness, px at 32 px per tile (lit: core width setting)
 local PROFILE = {
   0.0, 0.1569, 0.2944, 0.4136, 0.517, 0.6082, 0.6859, 0.7545, 0.8121, 0.8624,
   0.9031, 0.936, 0.9617, 0.9805, 0.9948, 1.0, 1.0, 1.0, 0.9948, 0.9805, 0.9617,
@@ -30,8 +29,8 @@ local PROFILE = {
   0.1569, 0.0,
 }
 -- Saved cables are redrawn when this changes; bump DRAW_REV for drawing changes.
-local DRAW_REV = 13
-local DRAW_SIG = table.concat({ DRAW_REV, UNLIT_W, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
+local DRAW_REV = 16
+local DRAW_SIG = table.concat({ DRAW_REV, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
   LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE }, "|")
 
 local anchors
@@ -42,8 +41,10 @@ local function cfg()
     color   = g["neon-power-color"].value,
     core_w  = g["neon-power-core-width"].value,
     glow_w  = g["neon-power-glow-width"].value,
-    glow_a  = g["neon-power-glow-strength"].value,
-    light   = g["neon-power-light-strength"].value,
+    glow_layers = g["neon-power-glow-layers"].value,
+    tube_w  = g["neon-power-tube-width"].value,
+    light   = g["neon-power-pole-glow"].value,
+    pole_light = g["neon-power-cable-glow"].value,
     kw      = CABLE_KW,
   }
 end
@@ -153,17 +154,21 @@ local function core_color(k)
   return { r = k.r + (1 - k.r) * 0.55, g = k.g + (1 - k.g) * 0.55, b = k.b + (1 - k.b) * 0.55, a = 1 }
 end
 
--- Unlit cables are grey whatever their colour, covering the copper wire.
+-- Layers, bottom to top: outer shine (lit only), tube, core (lit only).
+-- The unlit tube is grey whatever the cable colour and covers the copper wire.
 local UNLIT_GREY = { r = 0.67, g = 0.67, b = 0.67, a = 1 }
 
--- colour, visible, width of the core line
-local function core_look(k, lit, c)
-  if lit then return core_color(k), true, c.core_w end
-  return UNLIT_GREY, true, UNLIT_W
+local function tube_color(k, lit)
+  if not lit then return UNLIT_GREY end
+  return { r = k.r, g = k.g, b = k.b, a = 1 }
 end
 
+-- The outer shine is c.glow_layers stacked lines, each narrower than the last,
+-- so it is strongest at the centre (GLOW_ALPHA) and fades out to the edge.
+local GLOW_ALPHA = 0.8
+
 local function glow_color(c, k)
-  local a = c.glow_a
+  local a = GLOW_ALPHA / c.glow_layers
   return { r = k.r * a, g = k.g * a, b = k.b * a, a = a } -- premultiplied
 end
 
@@ -254,7 +259,7 @@ local function update_pole_light(un, c, redraw)
   if not (rec and rec.pole.valid) then return end
   local on = powered(un) or false
   if redraw and rec.light and rec.light.valid then rec.light.destroy() end
-  if c.light <= 0 then
+  if c.pole_light <= 0 then
     if rec.light and rec.light.valid then rec.light.destroy() end
     rec.light = nil
     return
@@ -264,7 +269,7 @@ local function update_pole_light(un, c, redraw)
     rec.light = rendering.draw_light{
       surface = rec.pole.surface, target = rec.pole,
       sprite = "utility/light_medium", scale = POLE_LIGHT_SCALE,
-      intensity = c.light, color = col, visible = on,
+      intensity = c.pole_light, color = col, visible = on,
     }
     rec.light_col = col
   else
@@ -277,10 +282,10 @@ local function update_pole_light(un, c, redraw)
 end
 
 local function destroy_objects(w)
-  for _, list in pairs({ w.core, w.glow, w.lights }) do
+  for _, list in pairs({ w.core, w.tube or {}, w.glow, w.lights }) do
     for _, o in pairs(list) do if o.valid then o.destroy() end end
   end
-  w.core, w.glow, w.lights = {}, {}, {}
+  w.core, w.tube, w.glow, w.lights = {}, {}, {}, {}
 end
 
 local function draw_wire(w, c)
@@ -306,21 +311,30 @@ local function draw_wire(w, c)
 
   local col = wire_color(w, c)
   w.col = col
-  if c.glow_w > 0 and c.glow_a > 0 then
+  if c.glow_w > 0 then
     local gc = glow_color(c, col)
-    for k = 1, n do
-      w.glow[k] = rendering.draw_line{
-        surface = surface, from = pts[k], to = pts[k + 1],
-        color = gc, width = c.glow_w, visible = lit,
-      }
+    for layer = c.glow_layers, 1, -1 do
+      local width = c.glow_w * layer / c.glow_layers
+      for k = 1, n do
+        w.glow[#w.glow + 1] = rendering.draw_line{
+          surface = surface, from = pts[k], to = pts[k + 1],
+          color = gc, width = width, visible = lit,
+        }
+      end
     end
   end
-  local cc, core_vis, core_w = core_look(col, lit, c)
+  local tc = tube_color(col, lit)
   for k = 1, n do
-    local f, t = pts[k], pts[k + 1]
+    w.tube[k] = rendering.draw_line{
+      surface = surface, from = pts[k], to = pts[k + 1],
+      color = tc, width = c.tube_w,
+    }
+  end
+  local cc = core_color(col)
+  for k = 1, n do
     w.core[k] = rendering.draw_line{
-      surface = surface, from = f, to = t,
-      color = cc, width = core_w, visible = core_vis,
+      surface = surface, from = pts[k], to = pts[k + 1],
+      color = cc, width = c.core_w, visible = lit,
     }
   end
   if c.light > 0 then
@@ -348,18 +362,18 @@ local function recolor_wire(w, c, cache)
   local col = wire_color(w, c, cache)
   if same_color(w.col, col) then return end
   w.col = col
-  local cc, gc = core_look(col, w.lit, c), glow_color(c, col)
+  local cc, tc, gc = core_color(col), tube_color(col, w.lit), glow_color(c, col)
   for _, o in pairs(w.core) do if o.valid then o.color = cc end end
+  for _, o in pairs(w.tube or {}) do if o.valid then o.color = tc end end
   for _, o in pairs(w.glow) do if o.valid then o.color = gc end end
   for _, o in pairs(w.lights) do if o.valid then o.color = col end end
 end
 
 local function set_lit(w, c, lit)
   w.lit = lit
-  local cc, core_vis, core_w = core_look(w.col or c.color, lit, c)
-  for _, o in pairs(w.core) do
-    if o.valid then o.visible = core_vis; o.color = cc; o.width = core_w end
-  end
+  local tc = tube_color(w.col or c.color, lit)
+  for _, o in pairs(w.tube or {}) do if o.valid then o.color = tc end end
+  for _, o in pairs(w.core) do if o.valid then o.visible = lit end end
   for _, o in pairs(w.glow) do if o.valid then o.visible = lit end end
   for _, o in pairs(w.lights) do if o.valid then o.visible = lit end end
 end
@@ -424,7 +438,7 @@ local function refresh_neon(un, c)
       local w = {
         a = un, b = pun, ea = pole, eb = other,
         na = true, nb = is_neon(other.name),
-        core = {}, glow = {}, lights = {},
+        core = {}, tube = {}, glow = {}, lights = {},
       }
       if w.nb then add_neon(other) end
       w.lit = wire_lit(w)
