@@ -1,7 +1,12 @@
+---------------------------------------------------------------------------------------------------
 Version: 0.3.2
 Date: 2026-11-24
-  Changes:
-    - Code cleanup; less usage per tick.
+  Graphics:
+    - Cables have round ends, so cables meeting at a pole join smoothly.
+  Bugfixes:
+    - Fixed light and dark lines across the cable's outer shine where its segments joined.
+  Optimizations:
+    - Code cleanup - less work per tick, the outer shine uses far fewer render objects.
 ---------------------------------------------------------------------------------------------------
 Version: 0.3.1
 Date: 2026-11-24

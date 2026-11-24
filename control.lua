@@ -29,7 +29,7 @@ local PROFILE = {
   0.1569, 0.0,
 }
 -- Saved cables are redrawn when this changes; bump DRAW_REV for drawing changes.
-local DRAW_REV = 19
+local DRAW_REV = 20
 local DRAW_SIG = table.concat({ DRAW_REV, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
   LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE }, "|")
 
@@ -273,18 +273,32 @@ local function draw_wire(w, c)
       }
     end
   end
+  -- Round caps on both ends, so cables meeting at a pole join smoothly.
+  local ends = { pts[1], pts[n + 1] }
   local tc = tube_color(col, lit)
   for k = 1, n do
-    w.tube[k] = rendering.draw_line{
+    w.tube[#w.tube + 1] = rendering.draw_line{
       surface = surface, from = pts[k], to = pts[k + 1],
       color = tc, width = c.tube_w,
     }
   end
+  for _, p in pairs(ends) do
+    w.tube[#w.tube + 1] = rendering.draw_circle{
+      surface = surface, target = p, radius = c.tube_w / 64, filled = true,
+      color = tc,
+    }
+  end
   local cc = core_color(col)
   for k = 1, n do
-    w.core[k] = rendering.draw_line{
+    w.core[#w.core + 1] = rendering.draw_line{
       surface = surface, from = pts[k], to = pts[k + 1],
       color = cc, width = c.core_w, visible = lit,
+    }
+  end
+  for _, p in pairs(ends) do
+    w.core[#w.core + 1] = rendering.draw_circle{
+      surface = surface, target = p, radius = c.core_w / 64, filled = true,
+      color = cc, visible = lit,
     }
   end
   if c.light > 0 then
