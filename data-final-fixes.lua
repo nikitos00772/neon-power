@@ -1,18 +1,14 @@
 local function xy(c) return c.x or c[1] or 0, c.y or c[2] or 0 end
 
--- Copper wire and shadow points of every picture variant, per pole.
+-- Copper wire point of each neon pole: cables start where the copper wire does.
 local anchors = {}
-for name, pole in pairs(data.raw["electric-pole"]) do
-  local list = {}
-  for i, cp in ipairs(pole.connection_points or {}) do
-    local c = cp.wire and cp.wire.copper
-    if not c then break end
-    local a = {}
-    a.x, a.y = xy(c)
-    local s = cp.shadow and cp.shadow.copper
-    if s then a.sx, a.sy = xy(s) end
-    list[i] = a
+for name in pairs(data.raw["mod-data"]["neon-power-poles"].data) do
+  local pole = data.raw["electric-pole"][name]
+  local cp = pole and pole.connection_points and pole.connection_points[1]
+  local c = cp and cp.wire and cp.wire.copper
+  if c then
+    local x, y = xy(c)
+    anchors[name] = { x = x, y = y }
   end
-  if #list > 0 then anchors[name] = list end
 end
 data:extend({ { type = "mod-data", name = "neon-power-anchors", data = anchors } })

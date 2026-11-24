@@ -29,7 +29,7 @@ local PROFILE = {
   0.1569, 0.0,
 }
 -- Saved cables are redrawn when this changes; bump DRAW_REV for drawing changes.
-local DRAW_REV = 16
+local DRAW_REV = 18
 local DRAW_SIG = table.concat({ DRAW_REV, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
   LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE }, "|")
 
@@ -45,17 +45,7 @@ local function cfg()
     tube_w  = g["neon-power-tube-width"].value,
     light   = g["neon-power-cable-glow"].value,
     pole_light = g["neon-power-pole-glow"].value,
-    kw      = CABLE_KW,
   }
-end
-
-local DEFAULT_ANCHORS = { DEFAULT_ANCHOR }
-local function anchor_list(pole)
-  if not anchors then
-    local md = prototypes.mod_data["neon-power-anchors"]
-    anchors = md and md.data or {}
-  end
-  return anchors[pole.name] or DEFAULT_ANCHORS
 end
 
 -- Round connection points toward zero to 1/256 tile, so cables meet the vanilla wire ends exactly.
@@ -64,48 +54,15 @@ local function fixed(v)
   return (s >= 0 and math.floor(s) or math.ceil(s)) / 256
 end
 
-local WIRE_IDS = {
-  defines.wire_connector_id.pole_copper,
-  defines.wire_connector_id.circuit_red,
-  defines.wire_connector_id.circuit_green,
-}
-local function variant_of(pole)
-  local n = #anchor_list(pole)
-  if n < 2 then return 1 end
-  local votes = {}
-  for i = 0, n - 1 do votes[i] = 0 end
-  local p = pole.position
-  local half_bin = 1 / (4 * n)
-  for _, id in pairs(WIRE_IDS) do
-    local conn = pole.get_wire_connector(id, false)
-    if conn then
-      for _, wc in pairs(conn.connections) do
-        local o = wc.origin ~= defines.wire_origin.radars and wc.target and wc.target.owner
-        if o and o.valid then
-          local q = o.position
-          local f = (math.atan2(q.x - p.x, p.y - q.y) / (2 * math.pi) + half_bin) % 1
-          if f >= 0.5 then f = f - 0.5 end
-          local i = math.min(math.floor(2 * f * n), n - 1)
-          votes[i] = votes[i] + 3
-          votes[(i - 1) % n] = votes[(i - 1) % n] + 2
-          votes[(i + 1) % n] = votes[(i + 1) % n] + 2
-        end
-      end
-    end
+-- Where the copper wire leaves the pole.
+local function anchor_of(pole)
+  if not anchors then
+    local md = prototypes.mod_data["neon-power-anchors"]
+    anchors = md and md.data or {}
   end
-  local best = 0
-  for i = 1, n - 1 do
-    if votes[i] > votes[best] then best = i end
-  end
-  return best + 1
-end
-
-local function anchor_of(pole, variant)
-  local list = anchor_list(pole)
-  local o = list[variant] or list[1]
+  local o = anchors[pole.name] or DEFAULT_ANCHOR
   local p = pole.position
-  local sx, sy = o.sx or (o.x + 2), o.sy or 0
-  return { x = p.x + fixed(o.x), y = p.y + fixed(o.y) }, { x = p.x + fixed(sx), y = p.y + fixed(sy) }
+  return { x = p.x + fixed(o.x), y = p.y + fixed(o.y) }
 end
 
 local function profile(t)
@@ -115,15 +72,14 @@ local function profile(t)
   return PROFILE[i + 1] * (1 - u) + PROFILE[i + 2] * u
 end
 
--- h: wire height above the shadow, px at 32 px per tile.
-local function arc(pa, pb, h)
+local function arc(pa, pb)
   local dx, dy = pb.x - pa.x, pb.y - pa.y
   local len = math.sqrt(dx * dx + dy * dy)
   if len < 1e-6 then len = 1e-6 end
   local nx, ny = -dy / len, dx / len
   if ny < 0 then nx, ny = -nx, -ny end
   local k = math.abs(dx) / len
-  local s = k * math.min(SPRITE_H * math.min(1, len / SHORT_LEN), 2 * h)
+  local s = k * SPRITE_H * math.min(1, len / SHORT_LEN)
   local q = math.max(1, s) / SPRITE_H -- cropped fraction of the png height
   return {
     x = pa.x, y = pa.y, dx = dx, dy = dy, len = len, nx = nx, ny = ny,
@@ -202,22 +158,10 @@ local function pole_color(un, c)
   return (rec and rec.color) or c.color
 end
 
-local function end_color(un, ent, cache)
-  local rec = storage.neon[un]
-  if rec then return rec.color end
-  if not ent.valid then return nil end
-  if cache then
-    local v = cache[un]
-    if v == nil then v = signal_color(ent) or false; cache[un] = v end
-    return v or nil
-  end
-  return signal_color(ent)
-end
-
 -- Signal colour only if both poles carry the same one.
-local function wire_color(w, c, cache)
-  local ka = end_color(w.a, w.ea, cache)
-  local kb = end_color(w.b, w.eb, cache)
+local function wire_color(w, c)
+  local ra, rb = storage.neon[w.a], storage.neon[w.b]
+  local ka, kb = ra and ra.color, rb and rb.color
   if ka and kb and same_color(ka, kb) then return ka end
   return c.color
 end
@@ -282,7 +226,7 @@ local function update_pole_light(un, c, redraw)
 end
 
 local function destroy_objects(w)
-  for _, list in pairs({ w.core, w.tube or {}, w.glow, w.lights }) do
+  for _, list in pairs({ w.core, w.tube, w.glow, w.lights }) do
     for _, o in pairs(list) do if o.valid then o.destroy() end end
   end
   w.core, w.tube, w.glow, w.lights = {}, {}, {}, {}
@@ -292,11 +236,7 @@ local function draw_wire(w, c)
   destroy_objects(w)
   if not (w.ea.valid and w.eb.valid) then return end
 
-  w.va, w.vb = variant_of(w.ea), variant_of(w.eb)
-  local pa, sa = anchor_of(w.ea, w.va)
-  local pb, sb = anchor_of(w.eb, w.vb)
-  local h = math.max(0, math.min(sa.y - pa.y, sb.y - pb.y)) * 32
-  local a = arc(pa, pb, h)
+  local a = arc(anchor_of(w.ea), anchor_of(w.eb))
   local len = a.len
   local function point(t) return arc_point(a, t) end
 
@@ -305,9 +245,6 @@ local function draw_wire(w, c)
 
   local n = math.max(MIN_SEGS, math.min(MAX_SEGS, math.ceil(len / SEG_LEN)))
   local pts = arc_points(a, n)
-
-  -- A neon-to-vanilla wire stays a plain copper wire.
-  if not (w.na and w.nb) then return end
 
   local col = wire_color(w, c)
   w.col = col
@@ -357,14 +294,13 @@ local function draw_wire(w, c)
   end
 end
 
-local function recolor_wire(w, c, cache)
-  if not (w.na and w.nb) then return end
-  local col = wire_color(w, c, cache)
+local function recolor_wire(w, c)
+  local col = wire_color(w, c)
   if same_color(w.col, col) then return end
   w.col = col
   local cc, tc, gc = core_color(col), tube_color(col, w.lit), glow_color(c, col)
   for _, o in pairs(w.core) do if o.valid then o.color = cc end end
-  for _, o in pairs(w.tube or {}) do if o.valid then o.color = tc end end
+  for _, o in pairs(w.tube) do if o.valid then o.color = tc end end
   for _, o in pairs(w.glow) do if o.valid then o.color = gc end end
   for _, o in pairs(w.lights) do if o.valid then o.color = col end end
 end
@@ -372,14 +308,14 @@ end
 local function set_lit(w, c, lit)
   w.lit = lit
   local tc = tube_color(w.col or c.color, lit)
-  for _, o in pairs(w.tube or {}) do if o.valid then o.color = tc end end
+  for _, o in pairs(w.tube) do if o.valid then o.color = tc end end
   for _, o in pairs(w.core) do if o.valid then o.visible = lit end end
   for _, o in pairs(w.glow) do if o.valid then o.visible = lit end end
   for _, o in pairs(w.lights) do if o.valid then o.visible = lit end end
 end
 
 local function wire_lit(w)
-  return w.na and w.nb and powered(w.a) and powered(w.b) or false
+  return powered(w.a) and powered(w.b) or false
 end
 
 local function destroy_wire(key)
@@ -402,21 +338,22 @@ local function update_power(un, c)
   local kw = 0
   for key in pairs(storage.by_pole[un] or {}) do
     local w = storage.wires[key]
-    if w and w.na and w.nb then kw = kw + c.kw / 2 end -- each end pays half
+    if w then kw = kw + CABLE_KW / 2 end -- each end pays half
   end
   local per_tick = kw * 1000 / 60
   rec.eei.power_usage = per_tick
   rec.eei.electric_buffer_size = math.max(per_tick * 60, 1)
 end
 
-local function partners_of(pole)
+-- Neon poles wired to this one; wires to vanilla poles stay plain copper.
+local function neon_partners(pole)
   local out = {}
   local conn = pole.get_wire_connector(defines.wire_connector_id.pole_copper, false)
   if not conn then return out end
   for _, wc in pairs(conn.connections) do
     local o = wc.target and wc.target.owner
     if wc.origin == defines.wire_origin.player and o and o.valid
-       and o.type == "electric-pole" and o.unit_number then
+       and is_neon(o.name) and o.unit_number then
       out[o.unit_number] = o
     end
   end
@@ -430,17 +367,16 @@ local function refresh_neon(un, c)
   if not pole.valid then return end
   if not (rec.eei and rec.eei.valid) then rec.eei = create_interface(pole) end
 
-  local partners = partners_of(pole)
+  local partners = neon_partners(pole)
   local changed = {}
   for pun, other in pairs(partners) do
     local key = wire_key(un, pun)
     if not storage.wires[key] then
       local w = {
         a = un, b = pun, ea = pole, eb = other,
-        na = true, nb = is_neon(other.name),
         core = {}, tube = {}, glow = {}, lights = {},
       }
-      if w.nb then add_neon(other) end
+      add_neon(other)
       w.lit = wire_lit(w)
       storage.wires[key] = w
       by_pole(un)[key] = true
@@ -455,15 +391,6 @@ local function refresh_neon(un, c)
     if not w or not partners[other] then
       destroy_wire(key)
       if other then changed[other] = true end
-    end
-  end
-  -- Any wire change (circuit ones too) can switch either pole's picture
-  -- variant, which moves its wire anchor.
-  for key in pairs(storage.by_pole[un] or {}) do
-    local w = storage.wires[key]
-    if w and w.ea.valid and w.eb.valid
-       and (variant_of(w.ea) ~= w.va or variant_of(w.eb) ~= w.vb) then
-      draw_wire(w, c)
     end
   end
   update_power(un, c)
@@ -523,22 +450,16 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(e)
   if e.setting:sub(1, 11) == "neon-power-" then redraw_all() end
 end)
 
-local pole_filter = { { filter = "type", type = "electric-pole" } }
+-- Only neon poles matter: wires to vanilla poles are left to the game.
+local pole_filter = {}
+for _, n in pairs(NEON_LIST) do pole_filter[#pole_filter + 1] = { filter = "name", name = n } end
 
 local function on_built(e)
   local pole = e.entity
   if not (pole and pole.valid and pole.unit_number) then return end
-  local c = cfg()
-  if is_neon(pole.name) then
-    add_neon(pole)
-    refresh_neon(pole.unit_number, c)
-  end
-  for pun, other in pairs(partners_of(pole)) do
-    if is_neon(other.name) then
-      add_neon(other)
-      refresh_neon(pun, c)
-    end
-  end
+  if not is_neon(pole.name) then return end
+  add_neon(pole)
+  refresh_neon(pole.unit_number, cfg())
 end
 
 local function on_removed(e)
@@ -588,14 +509,13 @@ script.on_nth_tick(STEP_TICKS, function()
     update_pole_light(un, c)
   end
 
-  local cache = {}
   for key, w in pairs(storage.wires) do
     if not (w.ea.valid and w.eb.valid) then
       destroy_wire(key)
     else
       local lit = wire_lit(w)
       if lit ~= w.lit then set_lit(w, c, lit) end
-      recolor_wire(w, c, cache)
+      recolor_wire(w, c)
     end
   end
 end)

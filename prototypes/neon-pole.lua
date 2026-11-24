@@ -23,9 +23,7 @@ for _, def in pairs(POLES) do
     pole.icons, pole.icon = icons, nil
     pole.minable = { mining_time = (base_pole.minable and base_pole.minable.mining_time) or 0.1, result = NAME }
     pole.next_upgrade = nil
-    pole.fast_replaceable_group = base_pole.fast_replaceable_group
     pole.light = nil
-    for k, v in pairs(def.extra or {}) do pole[k] = v end
 
     -- single sprite variant so the cable anchor always matches
     for _, layer in pairs(pole.pictures.layers or { pole.pictures }) do
