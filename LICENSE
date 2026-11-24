@@ -27,5 +27,4 @@ The following files are derived from Factorio's graphics and are NOT covered
 by the MIT license above. They remain the property of Wube Software and are
 included only for use with the game Factorio:
 
-  graphics/wire-gray-strip.png    (from __core__/graphics/copper-wire.png)
-  graphics/wire-shadow-strip.png  (from __core__/graphics/wire-shadow.png)
+  thumbnail.png  (from __base__/graphics/icons/medium-electric-pole.png)
