@@ -29,7 +29,7 @@ local PROFILE = {
   0.1569, 0.0,
 }
 -- Saved cables are redrawn when this changes; bump DRAW_REV for drawing changes.
-local DRAW_REV = 18
+local DRAW_REV = 19
 local DRAW_SIG = table.concat({ DRAW_REV, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
   LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE }, "|")
 
@@ -93,6 +93,21 @@ local function arc_point(a, t)
   local d = WIRE_DEPTH * profile(u) - END_OFF - HALF_H * (1 - a.q)
   local s = 0.5 + (t - 0.5) * a.shrink
   return { x = a.x + a.dx * s + a.nx * d, y = a.y + a.dy * s + a.ny * d }
+end
+
+local function band(pts, width)
+  local verts, n, half = {}, #pts, width / 2
+  for k = 1, n do
+    local p0, p1 = pts[math.max(1, k - 1)], pts[math.min(n, k + 1)]
+    local tx, ty = p1.x - p0.x, p1.y - p0.y
+    local l = math.sqrt(tx * tx + ty * ty)
+    if l < 1e-9 then l = 1 end
+    local nx, ny = -ty / l * half, tx / l * half
+    local p = pts[k]
+    verts[#verts + 1] = { x = p.x + nx, y = p.y + ny }
+    verts[#verts + 1] = { x = p.x - nx, y = p.y - ny }
+  end
+  return verts
 end
 
 local function arc_points(a, n)
@@ -251,13 +266,11 @@ local function draw_wire(w, c)
   if c.glow_w > 0 then
     local gc = glow_color(c, col)
     for layer = c.glow_layers, 1, -1 do
-      local width = c.glow_w * layer / c.glow_layers
-      for k = 1, n do
-        w.glow[#w.glow + 1] = rendering.draw_line{
-          surface = surface, from = pts[k], to = pts[k + 1],
-          color = gc, width = width, visible = lit,
-        }
-      end
+      local width = c.glow_w * layer / c.glow_layers / 32 -- px to tiles
+      w.glow[#w.glow + 1] = rendering.draw_polygon{
+        surface = surface, vertices = band(pts, width),
+        color = gc, visible = lit,
+      }
     end
   end
   local tc = tube_color(col, lit)
