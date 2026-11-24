@@ -43,8 +43,8 @@ local function cfg()
     glow_w  = g["neon-power-glow-width"].value,
     glow_layers = g["neon-power-glow-layers"].value,
     tube_w  = g["neon-power-tube-width"].value,
-    light   = g["neon-power-pole-glow"].value,
-    pole_light = g["neon-power-cable-glow"].value,
+    light   = g["neon-power-cable-glow"].value,
+    pole_light = g["neon-power-pole-glow"].value,
     kw      = CABLE_KW,
   }
 end

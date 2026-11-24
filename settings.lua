@@ -44,7 +44,7 @@ data:extend({
   },
   {
     type = "double-setting",
-    name = "neon-power-pole-glow",
+    name = "neon-power-cable-glow",
     setting_type = "runtime-global",
     default_value = 1.0,
     minimum_value = 0.0,
@@ -53,7 +53,7 @@ data:extend({
   },
   {
     type = "double-setting",
-    name = "neon-power-cable-glow",
+    name = "neon-power-pole-glow",
     setting_type = "runtime-global",
     default_value = 1.0,
     minimum_value = 0.0,
