@@ -19,14 +19,15 @@ local STRIP_PX = 128
 local POLE_LIGHT_SCALE = 0.8
 local DEFAULT_ANCHOR = { x = 0, y = -2.5 }
 
--- Vanilla wire geometry: the copper-wire.png arc along the chord, bulging
--- by |cos| (wire, downward) or |sin| (shadow, to the left) of its angle.
 local WIRE_SPRITE = "neon-power-wire"
 local SHADOW_SPRITE = "neon-power-wire-shadow"
 local STRIP_TILES = 0.25
-local WIRE_DEPTH = 46.9 / 64
-local END_OFF = 2.33 / 64
-local SHORT_LEN = 2.93
+local WIRE_DEPTH = 46.9 / 64 -- depth of the arc in the png
+local END_OFF = 2.33 / 64    -- arc ends above the png's vertical centre
+local SPRITE_H = 46          -- png height, px at 32 px per tile
+local HALF_H = SPRITE_H / 64 -- half of it, in tiles
+local SHORT_LEN = 3
+local VANILLA_WIRE_W = 1.5   -- vanilla wire stroke (3 hr px), px at 32 px per tile
 local PROFILE = {
   0.0, 0.1569, 0.2944, 0.4136, 0.517, 0.6082, 0.6859, 0.7545, 0.8121, 0.8624,
   0.9031, 0.936, 0.9617, 0.9805, 0.9948, 1.0, 1.0, 1.0, 0.9948, 0.9805, 0.9617,
@@ -36,8 +37,8 @@ local PROFILE = {
 local SHADE = { x = 0.5, y = 1 }
 
 -- Saved cables are redrawn when this changes; bump DRAW_REV for drawing changes.
-local DRAW_REV = 6
-local DRAW_SIG = table.concat({ DRAW_REV, tostring(VANILLA_WIRE), WIRE_DEPTH, END_OFF, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
+local DRAW_REV = 7
+local DRAW_SIG = table.concat({ DRAW_REV, tostring(VANILLA_WIRE), VANILLA_WIRE_W, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
   LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE, STRIP_TILES, SHADE.x, SHADE.y }, "|")
 
 local anchors
@@ -46,7 +47,9 @@ local function cfg()
   local g = settings.global
   return {
     color   = g["neon-power-color"].value,
-    core_w  = g["neon-power-core-width"].value,
+    -- the vanilla wire underneath would peek out beside a thinner core
+    core_w  = VANILLA_WIRE and math.max(VANILLA_WIRE_W, g["neon-power-core-width"].value)
+              or g["neon-power-core-width"].value,
     glow_w  = g["neon-power-glow-width"].value,
     glow_a  = g["neon-power-glow-strength"].value,
     light   = g["neon-power-light-strength"].value,
@@ -54,15 +57,63 @@ local function cfg()
   }
 end
 
-local function anchor_of(pole)
+local DEFAULT_ANCHORS = { DEFAULT_ANCHOR }
+local function anchor_list(pole)
   if not anchors then
     local md = prototypes.mod_data["neon-power-anchors"]
     anchors = md and md.data or {}
   end
-  local o = anchors[pole.name] or DEFAULT_ANCHOR
+  return anchors[pole.name] or DEFAULT_ANCHORS
+end
+
+-- Round connection points toward zero to 1/256 tile, so cables meet the vanilla wire ends exactly.
+local function fixed(v)
+  local s = v * 256
+  return (s >= 0 and math.floor(s) or math.ceil(s)) / 256
+end
+
+local WIRE_IDS = {
+  defines.wire_connector_id.pole_copper,
+  defines.wire_connector_id.circuit_red,
+  defines.wire_connector_id.circuit_green,
+}
+local function variant_of(pole)
+  local n = #anchor_list(pole)
+  if n < 2 then return 1 end
+  local votes = {}
+  for i = 0, n - 1 do votes[i] = 0 end
+  local p = pole.position
+  local half_bin = 1 / (4 * n)
+  for _, id in pairs(WIRE_IDS) do
+    local conn = pole.get_wire_connector(id, false)
+    if conn then
+      for _, wc in pairs(conn.connections) do
+        local o = wc.origin ~= defines.wire_origin.radars and wc.target and wc.target.owner
+        if o and o.valid then
+          local q = o.position
+          local f = (math.atan2(q.x - p.x, p.y - q.y) / (2 * math.pi) + half_bin) % 1
+          if f >= 0.5 then f = f - 0.5 end
+          local i = math.min(math.floor(2 * f * n), n - 1)
+          votes[i] = votes[i] + 3
+          votes[(i - 1) % n] = votes[(i - 1) % n] + 2
+          votes[(i + 1) % n] = votes[(i + 1) % n] + 2
+        end
+      end
+    end
+  end
+  local best = 0
+  for i = 1, n - 1 do
+    if votes[i] > votes[best] then best = i end
+  end
+  return best + 1
+end
+
+local function anchor_of(pole, variant)
+  local list = anchor_list(pole)
+  local o = list[variant] or list[1]
   local p = pole.position
   local sx, sy = o.sx or (o.x + 2), o.sy or 0
-  return { x = p.x + o.x, y = p.y + o.y }, { x = p.x + sx, y = p.y + sy }
+  return { x = p.x + fixed(o.x), y = p.y + fixed(o.y) }, { x = p.x + fixed(sx), y = p.y + fixed(sy) }
 end
 
 local function profile(t)
@@ -72,26 +123,34 @@ local function profile(t)
   return PROFILE[i + 1] * (1 - u) + PROFILE[i + 2] * u
 end
 
-local function arc(pa, pb, shadow)
+-- h: wire height above the shadow, px at 32 px per tile.
+local function arc(pa, pb, shadow, h)
   local dx, dy = pb.x - pa.x, pb.y - pa.y
   local len = math.sqrt(dx * dx + dy * dy)
   if len < 1e-6 then len = 1e-6 end
   local nx, ny = -dy / len, dx / len
-  local scale
+  local k
   if shadow then
     if nx > 0 then nx, ny = -nx, -ny end
-    scale = math.abs(dy) / len
+    k = math.abs(dy) / len
   else
     if ny < 0 then nx, ny = -nx, -ny end
-    scale = math.abs(dx) / len
+    k = math.abs(dx) / len
   end
-  scale = scale * math.min(1, len / SHORT_LEN)
-  return { x = pa.x, y = pa.y, dx = dx, dy = dy, len = len, nx = nx, ny = ny, scale = scale }
+  local s = k * math.min(SPRITE_H * math.min(1, len / SHORT_LEN), 2 * h)
+  local q = math.max(1, s) / SPRITE_H -- cropped fraction of the png height
+  return {
+    x = pa.x, y = pa.y, dx = dx, dy = dy, len = len, nx = nx, ny = ny,
+    q = q, w = math.sqrt(q),
+    shrink = math.max(0, len - 1 / 32) / len, -- drawn 1 px shorter than the chord
+  }
 end
 
 local function arc_point(a, t)
-  local d = a.scale * (WIRE_DEPTH * profile(t) - END_OFF)
-  return { x = a.x + a.dx * t + a.nx * d, y = a.y + a.dy * t + a.ny * d }
+  local u = 0.5 + (t - 0.5) * a.w -- column in the png, 0..1
+  local d = WIRE_DEPTH * profile(u) - END_OFF - HALF_H * (1 - a.q)
+  local s = 0.5 + (t - 0.5) * a.shrink
+  return { x = a.x + a.dx * s + a.nx * d, y = a.y + a.dy * s + a.ny * d }
 end
 
 local function arc_points(a, n)
@@ -258,9 +317,11 @@ local function draw_wire(w, c)
   destroy_objects(w)
   if not (w.ea.valid and w.eb.valid) then return end
 
-  local pa, sa = anchor_of(w.ea)
-  local pb, sb = anchor_of(w.eb)
-  local a = arc(pa, pb)
+  w.va, w.vb = variant_of(w.ea), variant_of(w.eb)
+  local pa, sa = anchor_of(w.ea, w.va)
+  local pb, sb = anchor_of(w.eb, w.vb)
+  local h = math.max(0, math.min(sa.y - pa.y, sb.y - pb.y)) * 32
+  local a = arc(pa, pb, false, h)
   local len = a.len
   local function point(t) return arc_point(a, t) end
 
@@ -272,7 +333,7 @@ local function draw_wire(w, c)
 
   if not VANILLA_WIRE then
     draw_strip(pts, surface, WIRE_SPRITE, not lit, w.tex)
-    draw_strip(arc_points(arc(sa, sb, true), n), surface, SHADOW_SPRITE, true, w.shadow)
+    draw_strip(arc_points(arc(sa, sb, true, h), n), surface, SHADOW_SPRITE, true, w.shadow)
   end
 
   local col = wire_color(w, c)
@@ -414,6 +475,15 @@ local function refresh_neon(un, c)
     if not w or not partners[other] then
       destroy_wire(key)
       if other then changed[other] = true end
+    end
+  end
+  -- Any wire change (circuit ones too) can switch either pole's picture
+  -- variant, which moves its wire anchor.
+  for key in pairs(storage.by_pole[un] or {}) do
+    local w = storage.wires[key]
+    if w and w.ea.valid and w.eb.valid
+       and (variant_of(w.ea) ~= w.va or variant_of(w.eb) ~= w.vb) then
+      draw_wire(w, c)
     end
   end
   update_power(un, c)
