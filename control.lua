@@ -29,7 +29,7 @@ local PROFILE = {
   0.1569, 0.0,
 }
 -- Saved cables are redrawn when this changes; bump DRAW_REV for drawing changes.
-local DRAW_REV = 20
+local DRAW_REV = 21
 local DRAW_SIG = table.concat({ DRAW_REV, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
   LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE }, "|")
 
@@ -95,17 +95,43 @@ local function arc_point(a, t)
   return { x = a.x + a.dx * s + a.nx * d, y = a.y + a.dy * s + a.ny * d }
 end
 
+-- Round ends: half circles drawn as fans inside the same triangle strip, so
+-- the see-through shine has no overlaps (the repeated centre makes empty triangles).
+local CAP_STEPS = 8
+
 local function band(pts, width)
   local verts, n, half = {}, #pts, width / 2
-  for k = 1, n do
+  local function add(x, y) verts[#verts + 1] = { x = x, y = y } end
+  -- unit tangent (tx, ty) and normal (nx, ny) at point k
+  local function frame(k)
     local p0, p1 = pts[math.max(1, k - 1)], pts[math.min(n, k + 1)]
     local tx, ty = p1.x - p0.x, p1.y - p0.y
     local l = math.sqrt(tx * tx + ty * ty)
-    if l < 1e-9 then l = 1 end
-    local nx, ny = -ty / l * half, tx / l * half
-    local p = pts[k]
-    verts[#verts + 1] = { x = p.x + nx, y = p.y + ny }
-    verts[#verts + 1] = { x = p.x - nx, y = p.y - ny }
+    if l < 1e-9 then return 1, 0, 0, 1 end
+    return tx / l, ty / l, -ty / l, tx / l
+  end
+  -- behind the first point: from its right edge round to its left edge
+  local p = pts[1]
+  local tx, ty, nx, ny = frame(1)
+  add(p.x - nx * half, p.y - ny * half)
+  for j = 1, CAP_STEPS do
+    local a = math.pi * j / CAP_STEPS
+    local c, s = math.cos(a), math.sin(a)
+    add(p.x, p.y)
+    add(p.x + (-nx * c - tx * s) * half, p.y + (-ny * c - ty * s) * half)
+  end
+  for k = 1, n do
+    p = pts[k]
+    tx, ty, nx, ny = frame(k)
+    add(p.x + nx * half, p.y + ny * half)
+    add(p.x - nx * half, p.y - ny * half)
+  end
+  -- in front of the last point: from its right edge round to its left edge
+  for j = 1, CAP_STEPS do
+    local a = math.pi * j / CAP_STEPS
+    local c, s = math.cos(a), math.sin(a)
+    add(p.x, p.y)
+    add(p.x + (-nx * c + tx * s) * half, p.y + (-ny * c + ty * s) * half)
   end
   return verts
 end
