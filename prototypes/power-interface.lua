@@ -22,6 +22,18 @@ data:extend({
   },
   {
     type = "sprite",
+    name = "neon-power-copper-wire",
+    filename = "__core__/graphics/copper-wire.png",
+    priority = "extra-high",
+    flags = { "no-crop" },
+    x = 216,
+    y = 89,
+    width = 16,
+    height = 3,
+    scale = 0.5,
+  },
+  {
+    type = "sprite",
     name = "neon-power-wire-shadow",
     filename = "__neon-power__/graphics/wire-shadow-strip.png",
     priority = "extra-high",

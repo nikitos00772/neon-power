@@ -10,7 +10,7 @@ Neon versions of every power pole, connected by glowing neon cables.
   - The pole's light takes that colour.
   - A cable takes it when both of its poles carry the same colour signal.
 - **Upgrade planner:** vanilla poles upgrade to their neon versions.
-- Neon cables also connect to vanilla poles.
+- Neon cables run only between neon poles; a wire from a neon pole to a vanilla pole stays a plain copper wire.
 
 ## Commands
 

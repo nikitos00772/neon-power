@@ -21,6 +21,7 @@ local DEFAULT_ANCHOR = { x = 0, y = -2.5 }
 
 local WIRE_SPRITE = "neon-power-wire"
 local SHADOW_SPRITE = "neon-power-wire-shadow"
+local COPPER_SPRITE = "neon-power-copper-wire"
 local STRIP_TILES = 0.25
 local WIRE_DEPTH = 46.9 / 64 -- depth of the arc in the png
 local END_OFF = 2.33 / 64    -- arc ends above the png's vertical centre
@@ -37,7 +38,7 @@ local PROFILE = {
 local SHADE = { x = 0.5, y = 1 }
 
 -- Saved cables are redrawn when this changes; bump DRAW_REV for drawing changes.
-local DRAW_REV = 7
+local DRAW_REV = 9
 local DRAW_SIG = table.concat({ DRAW_REV, tostring(VANILLA_WIRE), VANILLA_WIRE_W, WIRE_DEPTH, END_OFF, SPRITE_H, SHORT_LEN, SEG_LEN, MIN_SEGS, MAX_SEGS,
   LIGHT_SPACING, STRIP_LEN, POLE_LIGHT_SCALE, STRIP_TILES, SHADE.x, SHADE.y }, "|")
 
@@ -332,9 +333,11 @@ local function draw_wire(w, c)
   local pts = arc_points(a, n)
 
   if not VANILLA_WIRE then
-    draw_strip(pts, surface, WIRE_SPRITE, not lit, w.tex)
+    draw_strip(pts, surface, (w.na and w.nb) and WIRE_SPRITE or COPPER_SPRITE, not lit, w.tex)
     draw_strip(arc_points(arc(sa, sb, true, h), n), surface, SHADOW_SPRITE, true, w.shadow)
   end
+  -- A neon-to-vanilla wire stays a plain copper wire.
+  if not (w.na and w.nb) then return end
 
   local col = wire_color(w, c)
   w.col = col
@@ -376,6 +379,7 @@ local function draw_wire(w, c)
 end
 
 local function recolor_wire(w, c, cache)
+  if not (w.na and w.nb) then return end
   local col = wire_color(w, c, cache)
   if same_color(w.col, col) then return end
   w.col = col
@@ -397,9 +401,7 @@ local function set_lit(w, c, lit)
 end
 
 local function wire_lit(w)
-  if w.na and not powered(w.a) then return false end
-  if w.nb and not powered(w.b) then return false end
-  return true
+  return w.na and w.nb and powered(w.a) and powered(w.b) or false
 end
 
 local function destroy_wire(key)
@@ -422,7 +424,7 @@ local function update_power(un, c)
   local kw = 0
   for key in pairs(storage.by_pole[un] or {}) do
     local w = storage.wires[key]
-    if w then kw = kw + ((w.na and w.nb) and c.kw / 2 or c.kw) end
+    if w and w.na and w.nb then kw = kw + c.kw / 2 end -- each end pays half
   end
   local per_tick = kw * 1000 / 60
   rec.eei.power_usage = per_tick
